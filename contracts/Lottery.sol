@@ -6,18 +6,20 @@ contract Lottery is usingOraclize {
 
     enum LotteryState { Accepting, Finished, Paid }
 
-    event LogWinnerDetermined(address winner, uint256 amount);
-    event LogBidMade(address participant);
+    event LogWinnerDetermined(address winner, uint256 winningPrice);
+    event LogBidMade(address participant, uint256 balanceInPool);
     event LogGeneratedRandomNumber(uint randomNumber);
 
     address payable public organizer;
     address payable[] participants;
     LotteryState state; 
+    uint256 winningPrice;
 
 
     constructor() public {
         organizer = msg.sender;
         state = LotteryState.Accepting;
+        winningPrice = 0;
     }
 
     modifier onlyOwner() {
@@ -29,8 +31,8 @@ contract Lottery is usingOraclize {
         require(state == LotteryState.Accepting, "lottery is already over");
         require(msg.value == 0.1 ether, "you can bid with exactly 0.1 ether");
         participants.push(msg.sender);
-
-        emit LogBidMade(msg.sender);
+        winningPrice += msg.value;
+        emit LogBidMade(msg.sender, winningPrice);
     }
 
     function determineWinner() public payable onlyOwner {
@@ -44,7 +46,7 @@ contract Lottery is usingOraclize {
     }    
 
     function __callback(bytes32 _myid, string memory _result, bytes memory _proof) public {
-        require(msg.sender == oraclize_cbAddress());
+        require(msg.sender == oraclize_cbAddress(), "only oraclize can execute it");
         require(state != LotteryState.Paid, "Lottery has already been paid");
        // if (oraclize_randomDS_proofVerify__returnCode(queryId, result, proof) != 0) {
             //revert();
@@ -53,16 +55,16 @@ contract Lottery is usingOraclize {
         uint randomNumber = uint(keccak256(abi.encodePacked(_result))) % maxRange;
         emit LogGeneratedRandomNumber(randomNumber);
 
-        uint256 balance = address(this).balance;
-        uint256 winningPrice = balance - (balance / 10);
+        uint256 organizerPrice = (winningPrice / 10);
+        uint256 finalWinningPrice = winningPrice - organizerPrice;
     
-        uint256 winningIndex = randomNumber % participants.length + 1;
+        uint256 winningIndex = randomNumber % participants.length;
         address payable winner = participants[winningIndex];
         
-        winner.transfer(winningPrice);
+        winner.transfer(finalWinningPrice);
         state = LotteryState.Paid;
 
-        emit LogWinnerDetermined(winner, winningPrice);
+        emit LogWinnerDetermined(winner, finalWinningPrice);
         selfdestruct(organizer);
     }
 }
